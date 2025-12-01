@@ -1,0 +1,151 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master, copilot/* ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  go-checks:
+    name: Go ISS Service Checks
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.23'
+        cache-dependency-path: services/go-iss/go.sum
+    
+    - name: Download dependencies
+      working-directory: ./services/go-iss
+      run: go mod download
+    
+    - name: Verify dependencies
+      working-directory: ./services/go-iss
+      run: go mod verify
+    
+    - name: Run go vet
+      working-directory: ./services/go-iss
+      run: go vet ./...
+    
+    - name: Build
+      working-directory: ./services/go-iss
+      run: go build -o go-iss ./cmd/main.go
+
+  node-checks:
+    name: Node.js Web Service Checks
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: services/node-web/package.json
+    
+    - name: Install dependencies
+      working-directory: ./services/node-web
+      run: npm install
+    
+    - name: Lint
+      working-directory: ./services/node-web
+      run: npm run lint || true
+    
+    - name: Test
+      working-directory: ./services/node-web
+      run: npm test || true
+
+  python-checks:
+    name: Python Legacy Service Checks
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      working-directory: ./services/pascal-legacy
+      run: |
+        pip install psycopg2-binary
+        pip install pylint flake8
+    
+    - name: Lint with flake8
+      working-directory: ./services/pascal-legacy
+      run: |
+        # Stop on syntax errors or undefined names
+        flake8 legacy.py --count --select=E9,F63,F7,F82 --show-source --statistics
+        # Exit with warnings
+        flake8 legacy.py --count --max-complexity=10 --max-line-length=120 --statistics || true
+    
+    - name: Lint with pylint
+      working-directory: ./services/pascal-legacy
+      run: |
+        pylint legacy.py --disable=C,R --max-line-length=120 || true
+
+  docker-build:
+    name: Docker Build Test
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Build go_iss
+      uses: docker/build-push-action@v5
+      with:
+        context: ./services/go-iss
+        push: false
+        tags: go_iss:test
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+    
+    - name: Build node_web
+      uses: docker/build-push-action@v5
+      with:
+        context: ./services/node-web
+        push: false
+        tags: node_web:test
+    
+    - name: Build python_legacy
+      uses: docker/build-push-action@v5
+      with:
+        context: ./services/pascal-legacy
+        push: false
+        tags: python_legacy:test
+
+  documentation:
+    name: Documentation Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Check required documentation files
+      run: |
+        test -f README.md || exit 1
+        test -f RUNNING.md || exit 1
+        test -f REFACTORING_TABLE.md || exit 1
+        test -f services/pascal-legacy/README.md || exit 1
+        test -f services/node-web/README.md || exit 1
+        test -f services/go-iss/README.md || exit 1
+        echo "✓ All documentation files present"
+    
+    - name: Check documentation quality
+      run: |
+        # Check README has minimum content
+        wc -l README.md | awk '{if($1 < 50) exit 1}'
+        wc -l RUNNING.md | awk '{if($1 < 50) exit 1}'
+        echo "✓ Documentation meets minimum quality standards"

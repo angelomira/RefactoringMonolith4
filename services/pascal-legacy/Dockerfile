@@ -1,10 +1,22 @@
-FROM debian:12-slim
+FROM python:3.11-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends     fp-compiler postgresql-client ca-certificates     && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
 
-WORKDIR /opt/legacy
-COPY legacy.pas ./
-COPY run.sh /usr/local/bin/run_legacy.sh
-RUN chmod +x /usr/local/bin/run_legacy.sh
+# Install PostgreSQL client
+RUN apt-get update && apt-get install -y \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
 
-CMD ["/usr/local/bin/run_legacy.sh"]
+# Install Python dependencies
+RUN pip install --no-cache-dir psycopg2-binary
+
+# Copy application
+COPY legacy.py /app/
+COPY entrypoint.sh /app/
+
+RUN chmod +x /app/legacy.py /app/entrypoint.sh
+
+# Create data directory
+RUN mkdir -p /data/csv
+
+ENTRYPOINT ["/app/entrypoint.sh"]
